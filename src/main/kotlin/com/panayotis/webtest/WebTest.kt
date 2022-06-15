@@ -2,8 +2,10 @@
 
 package com.panayotis.webtest
 
+import io.github.bonigarcia.wdm.WebDriverManager
 import org.openqa.selenium.*
 import java.io.File
+import java.net.URI
 import java.nio.file.Files
 import java.text.SimpleDateFormat
 import java.util.*
@@ -12,6 +14,9 @@ import kotlin.math.abs
 private const val SLEEP_TIME = 0.3
 private const val DOWNLOAD_KEY = "DOWNLOAD"
 private val timefmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+
+internal val initializedChrome by lazy { WebDriverManager.chromedriver().setup() }
+internal val initializedFirefox by lazy { WebDriverManager.firefoxdriver().setup() }
 
 private fun logMsg(tag: String, message: String) =
     println("$tag ${timefmt.format(Date())} $message")
@@ -47,11 +52,12 @@ open class WebTest(options: WebTestOptions) {
     /**
      * Open a URL to start testing
      *
-     * @param url The URL to open
+     * @param url The URL to open; could also be relative URL
      */
     fun open(url: String) {
         logMsg("🌐", "Request for URL '$url'")
-        driver.get(url)
+        val target = if (URI(url).isAbsolute) url else URI(driver.currentUrl).resolve(url).toString()
+        driver.get(target)
     }
 
     /**
@@ -146,7 +152,7 @@ private open class SearchResultsC(
         get() {
             logMsg("🔍", "Request for first element with ${strategy.descr(dataset)}")
             val current = allElements
-            return if (current.isEmpty()) throw NotFoundException("Item with ${dataset.descr} is not found")
+            return if (current.isEmpty()) throw NotFoundException("Item with ${dataset.descr} not found")
             else current.first()
         }
 
@@ -170,10 +176,10 @@ private class DataSet(
 ) {
     val elements = {
         try {
-            allElements().filter(filter)
+            allElements()
         } catch (e: Exception) {
             emptyList()
-        }
+        }.filter(filter)
     }
 
     fun filter(filterName: String, newFilter: Element.() -> Boolean) =
@@ -206,7 +212,7 @@ class Element internal constructor(val webElement: WebElement, private val drive
      * Send text to this web element. Should be an element that is possible to accept text, like an 'input'.
      * @param text the text to send
      */
-    fun send(text: String): Element {
+    fun type(text: String): Element {
         logMsg("⌨", "Typing '$text' on tag '$this'")
         webElement.sendKeys(text)
         return this
