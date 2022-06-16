@@ -179,7 +179,13 @@ private class DataSet(
             allElements()
         } catch (e: Exception) {
             emptyList()
-        }.filter(filter)
+        }.filter {
+            try {
+                filter(it)
+            } catch (e: StaleElementReferenceException) {
+                false
+            }
+        }
     }
 
     fun filter(filterName: String, newFilter: Element.() -> Boolean) =
@@ -212,9 +218,9 @@ class Element internal constructor(val webElement: WebElement, private val drive
      * Send text to this web element. Should be an element that is possible to accept text, like an 'input'.
      * @param text the text to send
      */
-    fun type(text: String): Element {
-        logMsg("⌨", "Typing '$text' on tag '$this'")
-        webElement.sendKeys(text)
+    fun type(vararg text: CharSequence): Element {
+        logMsg("⌨", "Typing '${text.joinToString(separator = "")}' on tag '$this'")
+        webElement.sendKeys(*text)
         return this
     }
 
@@ -224,6 +230,15 @@ class Element internal constructor(val webElement: WebElement, private val drive
     fun click(): Element {
         logMsg("👆", "Clicking on tag '$this'")
         webElement.click()
+        return this
+    }
+
+    /**
+     * Clear this web element
+     */
+    fun clear(): Element {
+        logMsg("🧹", "Clearing tag '$this'")
+        webElement.clear()
         return this
     }
 
