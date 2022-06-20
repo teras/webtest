@@ -29,7 +29,7 @@ interface SearchResults {
      * @return the chain of SearchResults
      */
     fun attribute(attribute: String, containing: String) =
-        filter("Attribute \"$attribute\" with value \"$containing\"") {
+        filter("attribute \"$attribute\" with value \"$containing\"") {
             webElement.getAttribute(attribute)?.contains(containing) ?: false
         }
 
@@ -39,5 +39,5 @@ interface SearchResults {
      * @return the chain of SearchResults
      */
     fun text(containing: String) =
-        filter("Text contains \"$containing\"") { webElement.text?.contains(containing) ?: false }
+        filter("text contains \"$containing\"") { webElement.text?.contains(containing) ?: false }
 }

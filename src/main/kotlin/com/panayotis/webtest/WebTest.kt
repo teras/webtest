@@ -13,13 +13,23 @@ import kotlin.math.abs
 
 private const val SLEEP_TIME = 0.3
 private const val DOWNLOAD_KEY = "DOWNLOAD"
+
+@Suppress("SpellCheckingInspection")
 private val timefmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
 
 internal val initializedChrome by lazy { WebDriverManager.chromedriver().setup() }
 internal val initializedFirefox by lazy { WebDriverManager.firefoxdriver().setup() }
 
-private fun logMsg(tag: String, message: String) =
-    println("$tag ${timefmt.format(Date())} $message")
+private val pkg = WebTest::class.java.`package`.name
+private fun logMsg(tag: String, message: String) = println(
+    "$tag ${timefmt.format(Date())} $message${
+        Thread.currentThread().stackTrace.drop(1)
+            .find { !it.className.startsWith(pkg) }?.let {
+                if (!it.fileName.isNullOrBlank() && it.lineNumber > 0) " (${it.fileName}:${it.lineNumber})"
+                else ""
+            } ?: ""
+    }"
+)
 
 private fun sec(seconds: Double) = if (abs(seconds - 1.0) <= 0.0001) "1 second" else "$seconds seconds"
 
@@ -47,6 +57,7 @@ open class WebTest(options: WebTestOptions) {
     /**
      * The location of the download folder. Could be null, if download is not supported.
      */
+    @Suppress("MemberVisibilityCanBePrivate")
     val downloadDir = if (options.driver.supportsDownload) options.temp else null
 
     /**
@@ -252,6 +263,16 @@ class Element internal constructor(val webElement: WebElement, private val drive
                 logMsg("⬆", "Request parent of tag '${this@Element}', which is a '$it'")
             }
         } ?: throw NotFoundException("Unable to find parent of tag '$this")
+
+    /**
+     * Find all children of current web element
+     */
+    val children
+        get() = webElement.findElements(By.xpath("./child::*")).also {
+            val size = it.size
+            val plural = if (size == 1) "" else "s"
+            logMsg("👶", "Request children of tag '${this@Element}', found $size item$plural")
+        }.map { Element(it, driver) }
 
     /**
      * Search for a tag in current element.
