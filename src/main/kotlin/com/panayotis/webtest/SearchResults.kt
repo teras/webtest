@@ -1,5 +1,7 @@
 package com.panayotis.webtest
 
+import org.openqa.selenium.NotFoundException
+
 /**
  * The result of a webpage search
  */
@@ -10,9 +12,19 @@ interface SearchResults {
     val elements: Collection<Element>
 
     /**
-     * Get first element in page that fulfils provided filters
+     * Get first element in page that fulfils provided filters or fail if it doesn't exist
      */
     val element: Element
+
+    /**
+     * Get the first element in page that fulfils provided filters or null if it doesn't exist
+     */
+    val optionalElement: Element?
+        get() = try {
+            this.element
+        } catch (e: NotFoundException) {
+            null
+        }
 
     /**
      * Filter elements based on some custom predicates
