@@ -1,5 +1,6 @@
 package com.panayotis.webtest
 
+import java.io.File
 import java.nio.file.Files
 
 /**
@@ -15,7 +16,9 @@ class WebTestOptions(
     internal val headless: Boolean = true,
     internal val cleanup: Boolean = true,
     internal val quit: Boolean = true,
-    internal val binaryPath: String? = null
+    internal val binaryPath: String? = null,
+    internal val errorScreenshot: File? = null,
+    internal val ascii: Boolean = false
 ) {
     internal val temp by lazy { Files.createTempDirectory("web-tests-").toAbsolutePath().toString() }
 }

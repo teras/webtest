@@ -4,12 +4,15 @@ package com.panayotis.webtest
 
 import io.github.bonigarcia.wdm.WebDriverManager
 import org.openqa.selenium.*
+import org.openqa.selenium.firefox.FirefoxDriver
 import java.io.File
+import java.lang.reflect.InvocationTargetException
 import java.net.URI
 import java.nio.file.Files
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
+import kotlin.system.exitProcess
 
 private const val SLEEP_TIME = 0.3
 private const val DOWNLOAD_KEY = "DOWNLOAD"
@@ -21,8 +24,8 @@ internal val initializedChrome by lazy { WebDriverManager.chromedriver().setup()
 internal val initializedFirefox by lazy { WebDriverManager.firefoxdriver().setup() }
 
 private val pkg = WebTest::class.java.`package`.name
-private fun logMsg(tag: String, message: String) = println(
-    "$tag ${timefmt.format(Date())} $message${
+private fun logMsg(unicode: String, ascii: String, asAscii: Boolean, message: String) = println(
+    "${if (asAscii) "[$ascii]" else unicode} ${timefmt.format(Date())} $message${
         Thread.currentThread().stackTrace.drop(1)
             .find { !it.className.startsWith(pkg) }?.let {
                 if (!it.fileName.isNullOrBlank() && it.lineNumber > 0) " (${it.fileName}:${it.lineNumber})"
@@ -53,6 +56,8 @@ open class WebTest(options: WebTestOptions) {
     private val driver = options.driver.construct(options)
     private val shouldQuit = options.quit
     private val shouldCleanup = options.cleanup
+    private val errorScreenshot = options.errorScreenshot?.absoluteFile ?: File.createTempFile("webtest_", ".png")
+    private val ascii = options.ascii
 
     /**
      * The location of the download folder. Could be null, if download is not supported.
@@ -66,9 +71,14 @@ open class WebTest(options: WebTestOptions) {
      * @param url The URL to open; could also be relative URL
      */
     fun open(url: String) {
-        logMsg("🌐", "Request for URL '$url'")
+        logMsg("🌐", "OPEN", ascii, "Request for URL '$url'")
         val target = if (URI(url).isAbsolute) url else URI(driver.currentUrl).resolve(url).toString()
-        driver.get(target)
+        try {
+            driver.get(target)
+        } catch (e: Throwable) {
+            System.err.println("Unable to open server page '$url'. Is the server running?")
+            exitProcess(2)
+        }
     }
 
     /**
@@ -82,16 +92,16 @@ open class WebTest(options: WebTestOptions) {
         SearchResultsC(
             DataSet(
                 "tag '$tag'",
-                { driver.findElements(By.tagName(tag)).map { Element(it, driver) } },
+                { driver.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
                 { true }),
-            WaitForStrategy(timeout)
+            WaitForStrategy(timeout), ascii
         )
 
     /**
      * Log a user-provided message
      * @param message The message to send to logger
      */
-    fun log(message: String) = logMsg("📝", message)
+    fun log(message: String) = logMsg("📝", "MESG", ascii, message)
 
     /**
      * Search for a tag in current page.
@@ -101,9 +111,9 @@ open class WebTest(options: WebTestOptions) {
         SearchResultsC(
             DataSet(
                 "tag '$tag'",
-                { driver.findElements(By.tagName(tag)).map { Element(it, driver) } },
+                { driver.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
                 { true }),
-            DirectStrategy()
+            DirectStrategy(), ascii
         )
 
     /**
@@ -111,7 +121,7 @@ open class WebTest(options: WebTestOptions) {
      * @param seconds Delay in seconds, defaults to 0.3"
      */
     fun delay(seconds: Double = SLEEP_TIME) {
-        logMsg("⏳", "Waiting for ${sec(seconds)}")
+        logMsg("⏳", "DELY", ascii, "Waiting for ${sec(seconds)}")
         Thread.sleep((seconds * 1000).toLong())
     }
 
@@ -123,10 +133,23 @@ open class WebTest(options: WebTestOptions) {
      */
     fun waitFor(seconds: Double = 1.0, reason: String = "", predicate: () -> Boolean): Boolean {
         logMsg(
-            "⏳",
+            "⏳", "WAIT", ascii,
             "Waiting for ${sec(seconds)} until the predicate ${if (reason.isEmpty()) "" else "'$reason' "}is true"
         )
         return waitUntilNonNull(seconds) { if (predicate()) true else null } ?: false
+    }
+
+
+    fun screenshot(target: File) {
+        val output = when (driver) {
+            is FirefoxDriver -> driver.getFullPageScreenshotAs(OutputType.FILE)
+            is TakesScreenshot -> driver.getScreenshotAs(OutputType.FILE)
+            else -> {
+                logMsg("😳", "EROR", ascii, "Unable to take screenshot using driver $driver")
+                null
+            }
+        } ?: return
+        Files.move(output.toPath(), target.toPath())
     }
 
     /**
@@ -138,9 +161,18 @@ open class WebTest(options: WebTestOptions) {
             .forEach {
                 if (it.parameters.isNotEmpty()) throw IllegalArgumentException("Test methods could not have arguments")
                 else {
-                    logMsg("🏃", "Starting test '${it.name}' in ${javaClass.name}")
-                    it.invoke(this)
-                    logMsg("🏁️", "Successfully terminating test '${it.name}' in '${javaClass.name}'")
+                    logMsg("🏃", "STRT", ascii, "Starting test '${it.name}' in ${javaClass.name}")
+                    try {
+                        it.invoke(this)
+                    } catch (th: Throwable) {
+                        System.err.println("=== ERROR while executing tests, saving screenshot to ${errorScreenshot.absolutePath} ===")
+                        errorScreenshot.delete()
+                        errorScreenshot.parentFile.mkdirs()
+                        screenshot(errorScreenshot)
+                        val e = (if (th is InvocationTargetException) th.cause else th) ?: th
+                        throw e
+                    }
+                    logMsg("🏁️", "FINS", ascii, "Successfully terminating test '${it.name}' in '${javaClass.name}'")
                 }
             }
     } finally {
@@ -157,11 +189,12 @@ open class WebTest(options: WebTestOptions) {
 private open class SearchResultsC(
     private val dataset: DataSet,
     protected val strategy: SearchStrategy,
+    private val ascii: Boolean
 ) : SearchResults {
 
     override val element: Element
         get() {
-            logMsg("🔍", "Request for first element with ${strategy.descr(dataset)}")
+            logMsg("🔍", "ELMT", ascii, "Request for first element with ${strategy.descr(dataset)}")
             val current = allElements
             return if (current.isEmpty()) throw NotFoundException("Item with ${dataset.descr} not found")
             else current.first()
@@ -169,15 +202,14 @@ private open class SearchResultsC(
 
     override val elements: Collection<Element>
         get() {
-            logMsg("🔍", "Request for elements with ${strategy.descr(dataset)}")
+            logMsg("🔍", "ELMS", ascii, "Request for elements with ${strategy.descr(dataset)}")
             return allElements
         }
 
     private val allElements: Collection<Element> get() = strategy.find(dataset)
 
     override fun filter(filterName: String, function: Element.() -> Boolean): SearchResults =
-        SearchResultsC(dataset.filter(filterName, function), strategy)
-
+        SearchResultsC(dataset.filter(filterName, function), strategy, ascii)
 }
 
 private class DataSet(
@@ -224,13 +256,17 @@ private class WaitForStrategy(private val timeout: Double) : SearchStrategy {
 /**
  * Model an element as found inside the web page. Will wrap a defined Selenium web element
  */
-class Element internal constructor(val webElement: WebElement, private val driver: WebDriver) {
+class Element internal constructor(
+    val webElement: WebElement,
+    private val driver: WebDriver,
+    private val ascii: Boolean
+) {
     /**
      * Send text to this web element. Should be an element that is possible to accept text, like an 'input'.
      * @param text the text to send
      */
     fun type(vararg text: CharSequence): Element {
-        logMsg("⌨", "Typing '${text.joinToString(separator = "")}' on tag '$this'")
+        logMsg("⌨", "TYPE", ascii, "Typing '${text.joinToString(separator = "")}' on tag '$this'")
         webElement.sendKeys(*text)
         return this
     }
@@ -239,7 +275,7 @@ class Element internal constructor(val webElement: WebElement, private val drive
      * Click on this web element
      */
     fun click(): Element {
-        logMsg("👆", "Clicking on tag '$this'")
+        logMsg("👆", "CLIK", ascii, "Clicking on tag '$this'")
         webElement.click()
         return this
     }
@@ -248,7 +284,7 @@ class Element internal constructor(val webElement: WebElement, private val drive
      * Clear this web element
      */
     fun clear(): Element {
-        logMsg("🧹", "Clearing tag '$this'")
+        logMsg("🧹", "CLER", ascii, "Clearing tag '$this'")
         webElement.clear()
         return this
     }
@@ -259,8 +295,8 @@ class Element internal constructor(val webElement: WebElement, private val drive
     val parent: Element
         get() = ((driver as? JavascriptExecutor)
             ?.executeScript("return arguments[0].parentNode;", webElement) as? WebElement)?.run {
-            Element(this, driver).also {
-                logMsg("⬆", "Request parent of tag '${this@Element}', which is a '$it'")
+            Element(this, driver, ascii).also {
+                logMsg("⬆", "PART", ascii, "Request parent of tag '${this@Element}', which is a '$it'")
             }
         } ?: throw NotFoundException("Unable to find parent of tag '$this")
 
@@ -271,8 +307,8 @@ class Element internal constructor(val webElement: WebElement, private val drive
         get() = webElement.findElements(By.xpath("./child::*")).also {
             val size = it.size
             val plural = if (size == 1) "" else "s"
-            logMsg("👶", "Request children of tag '${this@Element}', found $size item$plural")
-        }.map { Element(it, driver) }
+            logMsg("👶", "CHLD", ascii, "Request children of tag '${this@Element}', found $size item$plural")
+        }.map { Element(it, driver, ascii) }
 
     /**
      * Search for a tag in current element.
@@ -282,9 +318,9 @@ class Element internal constructor(val webElement: WebElement, private val drive
         SearchResultsC(
             DataSet(
                 "tag '$tag' inside tag '${webElement.tagName}'",
-                { webElement.findElements(By.tagName(tag)).map { Element(it, driver) } },
+                { webElement.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
                 { true }),
-            DirectStrategy()
+            DirectStrategy(), ascii
         )
 
     /**
@@ -298,9 +334,9 @@ class Element internal constructor(val webElement: WebElement, private val drive
         SearchResultsC(
             DataSet(
                 "tag '$tag' inside tag '$this'",
-                { webElement.findElements(By.tagName(tag)).map { Element(it, driver) } },
+                { webElement.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
                 { true }),
-            WaitForStrategy(timeout)
+            WaitForStrategy(timeout), ascii
         )
 
     override fun toString() = webElement.tagName ?: webElement.toString()
