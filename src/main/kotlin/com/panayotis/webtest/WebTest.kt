@@ -2,7 +2,6 @@
 
 package com.panayotis.webtest
 
-import io.github.bonigarcia.wdm.WebDriverManager
 import org.openqa.selenium.*
 import org.openqa.selenium.firefox.FirefoxDriver
 import java.io.File
@@ -20,8 +19,6 @@ private const val DOWNLOAD_KEY = "DOWNLOAD"
 @Suppress("SpellCheckingInspection")
 private val timefmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
 
-internal val initializedChrome by lazy { WebDriverManager.chromedriver().setup() }
-internal val initializedFirefox by lazy { WebDriverManager.firefoxdriver().setup() }
 
 private val pkg = WebTest::class.java.`package`.name
 private fun logMsg(unicode: String, ascii: String, asAscii: Boolean, message: String) = println(
@@ -50,20 +47,32 @@ private fun <T : Any> waitUntilNonNull(timeout: Double, predicate: () -> T?): T?
 
 /**
  * Base class for all Selenium-based tests
- * @param options The options to use for this web test
+ * @param driver the driver to use, defaults to FIREFOX
+ * @param headless whether the browser should be headless, defaults to true
+ * @param cleanup whether the system should clean up folders (i.e. download folders) when tests have finished
+ * @param quit whether the browser should quit when tests finish
+ * @param binaryPath optional path of the web browser
+ * @param errorScreenshot optional file to save screenshot on error
+ * @param ascii whether to use ASCII tags instead of Unicode in logs
  */
-open class WebTest(options: WebTestOptions) {
-    private val driver = options.driver.construct(options)
-    private val shouldQuit = options.quit
-    private val shouldCleanup = options.cleanup
-    private val errorScreenshot = options.errorScreenshot?.absoluteFile ?: File.createTempFile("webtest_", ".png")
-    private val ascii = options.ascii
+open class WebTest(
+    driver: WebTestDriver = WebTestDriver.FIREFOX,
+    headless: Boolean = true,
+    private val cleanup: Boolean = true,
+    private val quit: Boolean = true,
+    binaryPath: String? = null,
+    errorScreenshot: File? = null,
+    private val ascii: Boolean = false
+) {
+    private val tempDir by lazy { Files.createTempDirectory("web-tests-").toAbsolutePath().toString() }
+    private val webDriver = driver.construct(headless, binaryPath, tempDir)
+    private val errorScreenshotFile = errorScreenshot?.absoluteFile ?: File.createTempFile("webtest_", ".png")
 
     /**
      * The location of the download folder. Could be null, if download is not supported.
      */
     @Suppress("MemberVisibilityCanBePrivate")
-    val downloadDir = if (options.driver.supportsDownload) options.temp else null
+    val downloadDir: String? = if (driver.supportsDownload) tempDir else null
 
     /**
      * Open a URL to start testing
@@ -72,9 +81,9 @@ open class WebTest(options: WebTestOptions) {
      */
     fun open(url: String) {
         logMsg("🌐", "OPEN", ascii, "Request for URL '$url'")
-        val target = if (URI(url).isAbsolute) url else URI(driver.currentUrl).resolve(url).toString()
+        val target = if (URI(url).isAbsolute) url else URI(webDriver.currentUrl).resolve(url).toString()
         try {
-            driver.get(target)
+            webDriver.get(target)
         } catch (e: Throwable) {
             System.err.println("Unable to open server page '$url'. Is the server running?")
             exitProcess(2)
@@ -92,7 +101,7 @@ open class WebTest(options: WebTestOptions) {
         SearchResultsC(
             DataSet(
                 "tag '$tag'",
-                { driver.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
+                { webDriver.findElements(By.tagName(tag)).map { Element(it, webDriver, ascii) } },
                 { true }),
             WaitForStrategy(timeout), ascii
         )
@@ -111,7 +120,7 @@ open class WebTest(options: WebTestOptions) {
         SearchResultsC(
             DataSet(
                 "tag '$tag'",
-                { driver.findElements(By.tagName(tag)).map { Element(it, driver, ascii) } },
+                { webDriver.findElements(By.tagName(tag)).map { Element(it, webDriver, ascii) } },
                 { true }),
             DirectStrategy(), ascii
         )
@@ -140,12 +149,17 @@ open class WebTest(options: WebTestOptions) {
     }
 
 
+    /**
+     * Take a screenshot of the current page and save it to a file.
+     * For Firefox, captures the full page; for other browsers, captures the visible viewport.
+     * @param target The file to save the screenshot to
+     */
     fun screenshot(target: File) {
-        val output = when (driver) {
-            is FirefoxDriver -> driver.getFullPageScreenshotAs(OutputType.FILE)
-            is TakesScreenshot -> driver.getScreenshotAs(OutputType.FILE)
+        val output = when (webDriver) {
+            is FirefoxDriver -> webDriver.getFullPageScreenshotAs(OutputType.FILE)
+            is TakesScreenshot -> webDriver.getScreenshotAs(OutputType.FILE)
             else -> {
-                logMsg("😳", "EROR", ascii, "Unable to take screenshot using driver $driver")
+                logMsg("😳", "EROR", ascii, "Unable to take screenshot using driver $webDriver")
                 null
             }
         } ?: return
@@ -153,7 +167,9 @@ open class WebTest(options: WebTestOptions) {
     }
 
     /**
-     * Begin tests
+     * Execute all methods annotated with [TestScenario] in this class.
+     * On error, saves a screenshot to the configured error screenshot file.
+     * When finished, quits the browser and cleans up temporary files based on configuration.
      */
     fun start() = try {
         javaClass.declaredMethods
@@ -165,10 +181,10 @@ open class WebTest(options: WebTestOptions) {
                     try {
                         it.invoke(this)
                     } catch (th: Throwable) {
-                        System.err.println("=== ERROR while executing tests, saving screenshot to ${errorScreenshot.absolutePath} ===")
-                        errorScreenshot.delete()
-                        errorScreenshot.parentFile.mkdirs()
-                        screenshot(errorScreenshot)
+                        System.err.println("=== ERROR while executing tests, saving screenshot to ${errorScreenshotFile.absolutePath} ===")
+                        errorScreenshotFile.delete()
+                        errorScreenshotFile.parentFile.mkdirs()
+                        screenshot(errorScreenshotFile)
                         val e = (if (th is InvocationTargetException) th.cause else th) ?: th
                         throw e
                     }
@@ -176,9 +192,9 @@ open class WebTest(options: WebTestOptions) {
                 }
             }
     } finally {
-        if (shouldQuit)
-            driver.quit()
-        if (shouldCleanup && downloadDir != null) Files
+        if (quit)
+            webDriver.quit()
+        if (cleanup && downloadDir != null) Files
             .walk(File(downloadDir).toPath())
             .sorted(Comparator.reverseOrder())
             .map { it.toFile() }
@@ -264,6 +280,7 @@ class Element internal constructor(
     /**
      * Send text to this web element. Should be an element that is possible to accept text, like an 'input'.
      * @param text the text to send
+     * @return this element for chaining
      */
     fun type(vararg text: CharSequence): Element {
         logMsg("⌨", "TYPE", ascii, "Typing '${text.joinToString(separator = "")}' on tag '$this'")
@@ -273,6 +290,7 @@ class Element internal constructor(
 
     /**
      * Click on this web element
+     * @return this element for chaining
      */
     fun click(): Element {
         logMsg("👆", "CLIK", ascii, "Clicking on tag '$this'")
@@ -282,6 +300,7 @@ class Element internal constructor(
 
     /**
      * Clear this web element
+     * @return this element for chaining
      */
     fun clear(): Element {
         logMsg("🧹", "CLER", ascii, "Clearing tag '$this'")
