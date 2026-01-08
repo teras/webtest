@@ -4,8 +4,8 @@ package com.panayotis.webtest
 
 import org.openqa.selenium.*
 import org.openqa.selenium.firefox.FirefoxDriver
+import org.openqa.selenium.support.ui.Select
 import java.io.File
-import java.lang.reflect.InvocationTargetException
 import java.net.URI
 import java.nio.file.Files
 import java.text.SimpleDateFormat
@@ -46,27 +46,27 @@ private fun <T : Any> waitUntilNonNull(timeout: Double, predicate: () -> T?): T?
 }
 
 /**
- * Base class for all Selenium-based tests
+ * Base class for all Selenium-based tests.
+ * Use with `use {}` block to automatically close the browser and take screenshot on error.
  * @param driver the driver to use, defaults to FIREFOX
  * @param headless whether the browser should be headless, defaults to true
  * @param cleanup whether the system should clean up folders (i.e. download folders) when tests have finished
- * @param quit whether the browser should quit when tests finish
- * @param binaryPath optional path of the web browser
+ * @param binaryPath optional path of the web browser (useful for Chromium-based browsers like Brave)
  * @param errorScreenshot optional file to save screenshot on error
+ * @param keepOpen if true, the browser stays open after test completes (useful for debugging)
  * @param ascii whether to use ASCII tags instead of Unicode in logs
  */
 open class WebTest(
-    driver: WebTestDriver = WebTestDriver.FIREFOX,
+    driver: WebDriver = WebDriver.FIREFOX,
     headless: Boolean = true,
     private val cleanup: Boolean = true,
-    private val quit: Boolean = true,
     binaryPath: String? = null,
-    errorScreenshot: File? = null,
+    private val errorScreenshot: File? = null,
+    private val keepOpen: Boolean = false,
     private val ascii: Boolean = false
-) {
+) : AutoCloseable {
     private val tempDir by lazy { Files.createTempDirectory("web-tests-").toAbsolutePath().toString() }
     private val webDriver = driver.construct(headless, binaryPath, tempDir)
-    private val errorScreenshotFile = errorScreenshot?.absoluteFile ?: File.createTempFile("webtest_", ".png")
 
     /**
      * The location of the download folder. Could be null, if download is not supported.
@@ -89,6 +89,40 @@ open class WebTest(
             exitProcess(2)
         }
     }
+
+    /**
+     * Navigate back in browser history
+     */
+    fun back() {
+        logMsg("⬅️", "BACK", ascii, "Navigating back")
+        webDriver.navigate().back()
+    }
+
+    /**
+     * Navigate forward in browser history
+     */
+    fun forward() {
+        logMsg("➡️", "FRWD", ascii, "Navigating forward")
+        webDriver.navigate().forward()
+    }
+
+    /**
+     * Refresh the current page
+     */
+    fun refresh() {
+        logMsg("🔄", "RFSH", ascii, "Refreshing page")
+        webDriver.navigate().refresh()
+    }
+
+    /**
+     * Get the current URL
+     */
+    val currentUrl: String? get() = webDriver.currentUrl
+
+    /**
+     * Get the page title
+     */
+    val title: String? get() = webDriver.title
 
     /**
      * Wait for a tag to appear and then search for it.
@@ -163,42 +197,42 @@ open class WebTest(
                 null
             }
         } ?: return
-        Files.move(output.toPath(), target.toPath())
+        Files.move(output.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 
     /**
-     * Execute all methods annotated with [TestScenario] in this class.
-     * On error, saves a screenshot to the configured error screenshot file.
-     * When finished, quits the browser and cleans up temporary files based on configuration.
+     * Close the browser and clean up resources.
+     * Called automatically when using `use {}` block.
+     * If [keepOpen] is true, the browser stays open but temp files are still cleaned up.
      */
-    fun start() = try {
-        javaClass.declaredMethods
-            .filter { it.getAnnotation(TestScenario::class.java) != null }
-            .forEach {
-                if (it.parameters.isNotEmpty()) throw IllegalArgumentException("Test methods could not have arguments")
-                else {
-                    logMsg("🏃", "STRT", ascii, "Starting test '${it.name}' in ${javaClass.name}")
-                    try {
-                        it.invoke(this)
-                    } catch (th: Throwable) {
-                        System.err.println("=== ERROR while executing tests, saving screenshot to ${errorScreenshotFile.absolutePath} ===")
-                        errorScreenshotFile.delete()
-                        errorScreenshotFile.parentFile.mkdirs()
-                        screenshot(errorScreenshotFile)
-                        val e = (if (th is InvocationTargetException) th.cause else th) ?: th
-                        throw e
-                    }
-                    logMsg("🏁️", "FINS", ascii, "Successfully terminating test '${it.name}' in '${javaClass.name}'")
-                }
-            }
-    } finally {
-        if (quit)
+    override fun close() {
+        if (!keepOpen)
             webDriver.quit()
         if (cleanup && downloadDir != null) Files
             .walk(File(downloadDir).toPath())
             .sorted(Comparator.reverseOrder())
             .map { it.toFile() }
             .forEach { it.delete() }
+    }
+
+    /**
+     * Execute a test block, automatically closing the browser when done.
+     * If an exception occurs and [errorScreenshot] was configured, saves a screenshot before re-throwing.
+     * @param block the test code to execute
+     */
+    fun <T> use(block: WebTest.() -> T): T {
+        return try {
+            block()
+        } catch (e: Throwable) {
+            errorScreenshot?.let {
+                it.parentFile?.mkdirs()
+                screenshot(it)
+                log("Error screenshot saved to ${it.absolutePath}")
+            }
+            throw e
+        } finally {
+            close()
+        }
     }
 }
 
@@ -274,7 +308,7 @@ private class WaitForStrategy(private val timeout: Double) : SearchStrategy {
  */
 class Element internal constructor(
     val webElement: WebElement,
-    private val driver: WebDriver,
+    private val driver: org.openqa.selenium.WebDriver,
     private val ascii: Boolean
 ) {
     /**
@@ -307,6 +341,27 @@ class Element internal constructor(
         webElement.clear()
         return this
     }
+
+    /**
+     * Select an option from a dropdown (select element) by visible text.
+     * @param text the visible text of the option to select
+     * @return this element for chaining
+     */
+    fun select(text: String): Element {
+        logMsg("📌", "SLCT", ascii, "Selecting '$text' from dropdown '$this'")
+        Select(webElement).selectByVisibleText(text)
+        return this
+    }
+
+    /**
+     * Get the visible text of this element
+     */
+    val text: String get() = webElement.text
+
+    /**
+     * Get the value attribute of this element (useful for input fields)
+     */
+    val value: String? get() = webElement.getAttribute("value")
 
     /**
      * Find the parent of current web element

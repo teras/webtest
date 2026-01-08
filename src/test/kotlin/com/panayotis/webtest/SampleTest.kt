@@ -1,6 +1,6 @@
 package com.panayotis.webtest
 
-import com.panayotis.webtest.WebTestDriver.FIREFOX
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -12,40 +12,51 @@ class SampleTest {
 
     @Test
     fun testClickLinks() {
-        val test = WebTest(FIREFOX, headless = false, quit = false)
+        WebTest(
+            driver = WebDriver.CHROME,
+            binaryPath = "/usr/bin/brave",
+            headless = false,
+            keepOpen = true,
+            errorScreenshot = File("error.png")
+        ).use {
+            // Open the test site
+            open("https://the-internet.herokuapp.com/")
+            log("Opened the-internet.herokuapp.com")
 
-        // Open the test site
-        test.open("https://the-internet.herokuapp.com/")
-        test.log("Opened the-internet.herokuapp.com")
+            // Click on "Checkboxes" link
+            tag("a").text("Checkboxes").element.click()
+            delay(1.0)
 
-        // Click on "Checkboxes" link
-        test.tag("a").text("Checkboxes").element.click()
-        test.delay(1.0)
+            // Verify we're on the checkboxes page
+            val header = tag("h3").element
+            log("Page header: ${header.webElement.text}")
+            assertTrue(header.webElement.text.contains("Checkboxes"))
 
-        // Verify we're on the checkboxes page
-        val header = test.tag("h3").element
-        test.log("Page header: ${header.webElement.text}")
-        assertTrue(header.webElement.text.contains("Checkboxes"))
+            // Find checkboxes and click the first one
+            val checkboxes = tag("input").attribute("type", "checkbox").elements
+            log("Found ${checkboxes.size} checkbox(es)")
+            checkboxes.first().click()
+            delay(0.5)
 
-        // Find checkboxes and click the first one
-        val checkboxes = test.tag("input").attribute("type", "checkbox").elements
-        test.log("Found ${checkboxes.size} checkboxes")
-        checkboxes.first().click()
-        test.delay(0.5)
+            // Go back to home
+            open("https://the-internet.herokuapp.com/")
+            delay(1.0)
 
-        // Go back to home
-        test.open("https://the-internet.herokuapp.com/")
-        test.delay(1.0)
+            // Click on "Dropdown" link
+            tag("a").text("Dropdown").element.click()
+            delay(1.0)
 
-        // Click on "Dropdown" link
-        test.tag("a").text("Dropdown").element.click()
-        test.delay(1.0)
+            // Verify we're on the dropdown page
+            val dropdownHeader = tag("h3").element
+            log("Page header: ${dropdownHeader.webElement.text}")
+            assertTrue(dropdownHeader.webElement.text.contains("Dropdown"))
 
-        // Verify we're on the dropdown page
-        val dropdownHeader = test.tag("h3").element
-        test.log("Page header: ${dropdownHeader.webElement.text}")
-        assertTrue(dropdownHeader.webElement.text.contains("Dropdown"))
+            // Select from dropdown
+            tag("select").element.select("Option 2")
+            delay(0.5)
 
-        test.log("Test completed successfully!")
+            log("Test completed successfully!")
+
+        }
     }
 }
