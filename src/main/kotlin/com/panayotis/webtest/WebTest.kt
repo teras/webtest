@@ -13,6 +13,11 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.system.exitProcess
 
+/**
+ * Re-export Selenium Keys for easy access to special keys like ENTER, ESCAPE, TAB, etc.
+ */
+typealias Keys = org.openqa.selenium.Keys
+
 private const val SLEEP_TIME = 0.3
 private const val DOWNLOAD_KEY = "DOWNLOAD"
 
@@ -66,7 +71,7 @@ open class WebTest(
     private val ascii: Boolean = false
 ) : AutoCloseable {
     private val tempDir by lazy { Files.createTempDirectory("web-tests-").toAbsolutePath().toString() }
-    private val webDriver = driver.construct(headless, binaryPath, tempDir)
+    val webDriver = driver.construct(headless, binaryPath, tempDir)
 
     /**
      * The location of the download folder. Could be null, if download is not supported.
@@ -333,6 +338,39 @@ class Element internal constructor(
     }
 
     /**
+     * Hover over this web element (move mouse to element).
+     * Useful for triggering dropdown menus or tooltips.
+     * @return this element for chaining
+     */
+    fun hover(): Element {
+        logMsg("🖱️", "HOVR", ascii, "Hovering over tag '$this'")
+        org.openqa.selenium.interactions.Actions(driver).moveToElement(webElement).perform()
+        return this
+    }
+
+    /**
+     * Scroll the element into view.
+     * Useful when elements are outside the viewport and need to be visible before clicking.
+     * @return this element for chaining
+     */
+    fun scrollIntoView(): Element {
+        logMsg("📜", "SCRL", ascii, "Scrolling to tag '$this'")
+        (driver as? JavascriptExecutor)?.executeScript("arguments[0].scrollIntoView({block: 'center'});", webElement)
+        return this
+    }
+
+    /**
+     * Click using JavaScript instead of native click.
+     * Useful when element is not interactable via normal click.
+     * @return this element for chaining
+     */
+    fun jsClick(): Element {
+        logMsg("👆", "JCLK", ascii, "JS-clicking on tag '$this'")
+        (driver as? JavascriptExecutor)?.executeScript("arguments[0].click();", webElement)
+        return this
+    }
+
+    /**
      * Clear this web element
      * @return this element for chaining
      */
@@ -344,12 +382,33 @@ class Element internal constructor(
 
     /**
      * Select an option from a dropdown (select element) by visible text.
-     * @param text the visible text of the option to select
+     * Supports partial matching - will find the first option containing the given text.
+     * @param text the visible text (or partial text) of the option to select
      * @return this element for chaining
      */
     fun select(text: String): Element {
-        logMsg("📌", "SLCT", ascii, "Selecting '$text' from dropdown '$this'")
-        Select(webElement).selectByVisibleText(text)
+        logMsg("📌", "SLCT", ascii, "Selecting option containing text '$text' from dropdown '$this'")
+        val select = Select(webElement)
+        val matchingOption = select.options.find { it.text.contains(text) }
+            ?: throw NoSuchElementException("Cannot locate option containing text: $text")
+        select.selectByVisibleText(matchingOption.text)
+        return this
+    }
+
+    /**
+     * Select an option from a dropdown (select element) by value attribute.
+     * Supports partial matching - will find the first option whose value contains the given text.
+     * Useful for frameworks like ZK that store display text in the value attribute.
+     * @param value the value (or partial value) of the option to select
+     * @return this element for chaining
+     */
+    fun selectByValue(value: String): Element {
+        logMsg("📌", "SLVL", ascii, "Selecting option containing value '$value' from dropdown '$this'")
+        val select = Select(webElement)
+        val matchingOption = select.options.find { it.getAttribute("value")?.contains(value) == true }
+            ?: throw NoSuchElementException("Cannot locate option containing value: $value")
+        val index = select.options.indexOf(matchingOption)
+        select.selectByIndex(index)
         return this
     }
 
@@ -370,7 +429,7 @@ class Element internal constructor(
         get() = ((driver as? JavascriptExecutor)
             ?.executeScript("return arguments[0].parentNode;", webElement) as? WebElement)?.run {
             Element(this, driver, ascii).also {
-                logMsg("⬆", "PART", ascii, "Request parent of tag '${this@Element}', which is a '$it'")
+                logMsg("👴", "PART", ascii, "Request parent of tag '${this@Element}', which is a '$it'")
             }
         } ?: throw NotFoundException("Unable to find parent of tag '$this")
 

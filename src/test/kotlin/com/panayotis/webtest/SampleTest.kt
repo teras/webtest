@@ -29,8 +29,8 @@ class SampleTest {
 
             // Verify we're on the checkboxes page
             val header = tag("h3").element
-            log("Page header: ${header.webElement.text}")
-            assertTrue(header.webElement.text.contains("Checkboxes"))
+            log("Page header: ${header.text}")
+            assertTrue(header.text.contains("Checkboxes"))
 
             // Find checkboxes and click the first one
             val checkboxes = tag("input").attribute("type", "checkbox").elements
@@ -48,8 +48,8 @@ class SampleTest {
 
             // Verify we're on the dropdown page
             val dropdownHeader = tag("h3").element
-            log("Page header: ${dropdownHeader.webElement.text}")
-            assertTrue(dropdownHeader.webElement.text.contains("Dropdown"))
+            log("Page header: ${dropdownHeader.text}")
+            assertTrue(dropdownHeader.text.contains("Dropdown"))
 
             // Select from dropdown
             tag("select").element.select("Option 2")

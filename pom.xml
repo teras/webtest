@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.panayotis</groupId>
     <artifactId>webtest</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <name>WebTest</name>
     <description>Perform Web test with Selenium, the easy way</description>
     <url>https://github.com/teras/webtest</url>
