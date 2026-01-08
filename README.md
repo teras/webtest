@@ -128,8 +128,7 @@ tag("table").element.waitForTag("tr", timeout = 5.0).elements
 
 | Method | Description |
 |--------|-------------|
-| `click()` | Click element |
-| `jsClick()` | Click using JavaScript (for non-interactable elements) |
+| `click(force)` | Click element (`force=true` uses JavaScript for non-interactable elements) |
 | `type(text)` | Type text (supports vararg, including `Keys`) |
 | `clear()` | Clear input |
 | `hover()` | Hover over element (triggers dropdowns/tooltips) |
@@ -144,7 +143,7 @@ tag("table").element.waitForTag("tr", timeout = 5.0).elements
 | `waitForTag(name, timeout)` | Wait for nested tag to appear (default timeout: 60s) |
 | `webElement` | Access underlying Selenium element |
 
-> **Note:** Methods like `click()`, `type()`, `clear()`, `hover()`, `scrollIntoView()`, `jsClick()`, `select()`, and `selectByValue()` return `this` for method chaining (e.g., `element.scrollIntoView().click()`).
+> **Note:** Methods like `click()`, `type()`, `clear()`, `hover()`, `scrollIntoView()`, `select()`, and `selectByValue()` return `this` for method chaining (e.g., `element.scrollIntoView().click()`).
 
 ## Examples
 
@@ -213,7 +212,7 @@ tag("button").text("Load More").element
     .click()
 
 // Use JavaScript click for stubborn elements
-tag("button").attribute("class", "hidden-btn").element.jsClick()
+tag("button").attribute("class", "hidden-btn").element.click(force = true)
 ```
 
 ### Form with Special Keys

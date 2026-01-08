@@ -329,11 +329,17 @@ class Element internal constructor(
 
     /**
      * Click on this web element
+     * @param force if true, use JavaScript click instead of native click (useful for covered or non-interactable elements)
      * @return this element for chaining
      */
-    fun click(): Element {
-        logMsg("👆", "CLIK", ascii, "Clicking on tag '$this'")
-        webElement.click()
+    fun click(force: Boolean = false): Element {
+        if (force) {
+            logMsg("👆", "CLIK", ascii, "Force-clicking on tag '$this'")
+            (driver as? JavascriptExecutor)?.executeScript("arguments[0].click();", webElement)
+        } else {
+            logMsg("👆", "CLIK", ascii, "Clicking on tag '$this'")
+            webElement.click()
+        }
         return this
     }
 
@@ -356,17 +362,6 @@ class Element internal constructor(
     fun scrollIntoView(): Element {
         logMsg("📜", "SCRL", ascii, "Scrolling to tag '$this'")
         (driver as? JavascriptExecutor)?.executeScript("arguments[0].scrollIntoView({block: 'center'});", webElement)
-        return this
-    }
-
-    /**
-     * Click using JavaScript instead of native click.
-     * Useful when element is not interactable via normal click.
-     * @return this element for chaining
-     */
-    fun jsClick(): Element {
-        logMsg("👆", "JCLK", ascii, "JS-clicking on tag '$this'")
-        (driver as? JavascriptExecutor)?.executeScript("arguments[0].click();", webElement)
         return this
     }
 
